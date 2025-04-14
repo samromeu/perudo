@@ -3,6 +3,7 @@ local DraggableObject = require "DraggableObject"
 local function Die(x, y)
   local die = DraggableObject(x, y, 64, 64)
   die.value = love.math.random(1, 6)
+  die.raised = false
 
   die.showDie = false
   
@@ -14,6 +15,18 @@ local function Die(x, y)
 
   die.roll = function(self)
     self.value = love.math.random(1, 6)
+  end
+
+  die.raise = function(self)
+    self.target_transform.y = self.transform.y - 20
+    self.raised = true
+    self.isDragging = false
+  end
+
+  die.lower = function(self)
+    self.target_transform.y = self.transform.y + 20
+    self.raised = false
+    self.isDragging = false
   end
 
   die.closestdie = function(self, dice)

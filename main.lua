@@ -3,6 +3,11 @@ local createCup = require "Cup"
 local createButton = require "button" 
 local arrow = require "Arrow"
 local GameState = require "GameState"
+local OpponentAI = require "OpponentAI"
+local MessageSystem = require "MessageSystem"
+
+-- Make center coordinates global
+local centerX, centerY
 
 local diceConfig = {
     total = 6,
@@ -37,6 +42,8 @@ function love.load()
   
   upArrowSprite = love.graphics.newImage("assets/uparrow.png")
   downArrowSprite = love.graphics.newImage("assets/downarrow.png")
+  bidButtonSprite = love.graphics.newImage("assets/bidbutton.png")
+  dudoButtonSprite = love.graphics.newImage("assets/dudobutton.png")
 
   dieSprites = {face1, face2, face3, face4, face5, face6}
 
@@ -46,24 +53,29 @@ function love.load()
   opponentCup = createCup(650, 25)
   opponentCup:fill(6)
   
-  valueUparrow = arrow(50, 50, 64, 64, guess.value)
-  valueDownarrow = arrow(50, 114, 64, 64, "")
+  -- Set the center coordinates
+  centerX = love.graphics.getWidth() / 2
+  centerY = love.graphics.getHeight() / 2
 
-  countUparrow = arrow(120, 50, 64, 64, guess.count)
-  countDownarrow = arrow(120, 114, 64, 64, "")
+
+  valueUparrow = arrow(centerX - 100, centerY - 50, 64, 64, guess.value)
+  valueDownarrow = arrow(centerX - 100, centerY + 14, 64, 64, "")
+
+  countUparrow = arrow(centerX - 30, centerY - 50, 64, 64, guess.count)
+  countDownarrow = arrow(centerX - 30, centerY + 14, 64, 64, "")
 
   -- Create new game action buttons
-  bidButton = createButton(200, 50, 100, 50, "Bid", function()
+  bidButton = createButton(centerX + 50, centerY - 50, 32, 32, "", function()
     if GameState.submitBid(guess.value, guess.count) then
       -- Reset guess values after successful bid
-      guess.value = 0
+      guess.value = GameState.currentBid.value
       guess.count = 0
     end
-  end)
+  end, bidButtonSprite)
 
-  dudoButton = createButton(200, 120, 100, 50, "Dudo", function()
-    GameState.handleDudo()
-  end)
+  dudoButton = createButton(centerX + 50, centerY + 50, 32, 32, "", function()
+    GameState.handleDudo(playerCup.dice, opponentCup.dice)
+  end, dudoButtonSprite)
 
   resetButton = createButton(playerCup.transform.x + 125, playerCup.transform.y + 100, 25, 25, "R", function() 
     playerCup:shake()
@@ -76,6 +88,10 @@ function love.load()
       die.target_transform = {x = playerCup.transform.x + playerCup.width / 2, y = playerCup.transform.y + playerCup.height / 2}
     end
   end)
+
+  -- Reset AI when starting a new game
+  OpponentAI.reset()
+  GameState.reset()
 end
 
 function love.draw()
@@ -97,11 +113,11 @@ function love.draw()
   --Draw current bid if there is one
   if GameState.currentBid.value > 0 then
     love.graphics.printf("Current Bid: " .. GameState.currentBid.count .. " dice of value " .. GameState.currentBid.value, 
-      400, 50, 200, "center")
+      0, centerY - 100, love.graphics.getWidth(), "center")
   end
 
   --Draw whose turn it is
-  love.graphics.printf("Current Turn: " .. GameState.currentPlayer, 400, 80, 200, "center")
+  love.graphics.printf("Current Turn: " .. GameState.currentPlayer, 0, centerY - 80, love.graphics.getWidth(), "center")
 
   if playerCup.showDice == true then
     for _, die in ipairs(playerCup.dice) do
@@ -132,13 +148,61 @@ function love.draw()
   end
   resetButton:draw()
   addButton:draw()
+
+  -- Draw messages
+  MessageSystem.draw()
 end
 
-
 function love.update(dt)
+  -- Update message system
+  MessageSystem.update(dt)
+
+  -- Handle opponent's turn
+  if GameState.currentPlayer == "opponent" and not GameState.gameOver then
+    -- Get opponent's known dice (their own dice)
+    local knownDice = {}
+    for _, die in ipairs(opponentCup.dice) do
+      table.insert(knownDice, die.value)
+    end
+
+    -- Add a small delay between opponent moves
+    if not GameState.opponentMoveTimer then
+      GameState.opponentMoveTimer = 0
+    end
+    
+    GameState.opponentMoveTimer = GameState.opponentMoveTimer + dt
+    
+    if GameState.opponentMoveTimer >= 1.0 then -- Wait 1 second between moves
+      -- Only make a move if we're in the bidding phase
+      if GameState.gamePhase == "bidding" then
+        -- Decide whether to call Dudo
+        if OpponentAI.shouldCallDudo(GameState, knownDice) then
+          GameState.handleDudo(playerCup.dice, opponentCup.dice)
+          MessageSystem.addMessage("Opponent calls Dudo!")
+        else
+          -- Make a bid
+          local bid = OpponentAI.makeBid(GameState, knownDice)
+          if GameState.submitBid(bid.value, bid.count) then
+            OpponentAI.updateMemory(bid)
+            MessageSystem.addMessage("Opponent bids " .. bid.count .. " dice of value " .. bid.value)
+          end
+        end
+      end
+      GameState.opponentMoveTimer = 0
+    end
+  end
 
   for i = #playerCup.dice, 1, -1 do
     local die = playerCup.dice[i]
+    if die.value == guess.value then
+      if die.raised == false then 
+        die:raise()
+      end
+    else
+      if die.raised == true then
+        die:lower()
+      end
+    end
     if die.isDragging then
       mouseX, mouseY = love.mouse.getPosition()
       die.target_transform.x = mouseX - die.width/2
@@ -212,18 +276,34 @@ function love.mousepressed(x, y, button)
   --[[Arrow clicking logic]]
   --Value arrows
   if button == 1 and valueUparrow:isClicked(x, y) then
-    guess.value = math.min(6, guess.value + 1)
+    local newValue = guess.value + 1
+    if newValue <= GameState.getMaxValue() then
+      guess.value = newValue
+      -- Ensure count is valid for the new value
+      guess.count = math.max(guess.count, GameState.getMinCount(guess.value))
+    end
   end
   if button == 1 and valueDownarrow:isClicked(x, y) then
-    guess.value = math.max(1, guess.value - 1)
+    local newValue = guess.value - 1
+    if newValue >= GameState.getMinValue() then
+      guess.value = newValue
+      -- Ensure count is valid for the new value
+      guess.count = math.max(guess.count, GameState.getMinCount(guess.value))
+    end
   end
 
   --Count arrows
   if button == 1 and countUparrow:isClicked(x, y) then
-    guess.count = guess.count + 1
+    local newCount = guess.count + 1
+    if newCount <= GameState.getMaxCount(guess.value) then
+      guess.count = newCount
+    end
   end
   if button == 1 and countDownarrow:isClicked(x, y) then
-    guess.count = math.max(1, guess.count - 1)
+    local newCount = guess.count - 1
+    if newCount >= GameState.getMinCount(guess.value) then
+      guess.count = newCount
+    end
   end
 end
 

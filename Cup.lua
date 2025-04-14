@@ -4,7 +4,7 @@ local createDie = require "Die"
 local function createCup(x, y)
   local cup = DraggableObject(x, y, 128, 128)
 
-  cup.showDice = false
+  cup.showDice = true
 
   cup.dice = {}
 
@@ -17,6 +17,7 @@ local function createCup(x, y)
       local newDie = createDie(--[[self.transform.x + (self.width / 4)]] -50, self.transform.y + (self.height / 4))
       table.insert(self.dice, newDie)
     end
+    self:displayDice()
   end
 
   cup.displayDice = function(self) --IN PROGRESS: Continue from here
