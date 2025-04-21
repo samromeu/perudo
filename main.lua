@@ -47,11 +47,13 @@ function love.load()
 
   dieSprites = {face1, face2, face3, face4, face5, face6}
 
+  --Create the player cup
   playerCup = createCup(25, 450)
-  playerCup:fill(6)
+  playerCup:fill(GameState.playerDiceCount)
 
-  opponentCup = createCup(650, 25)
-  opponentCup:fill(6)
+  --Create the opponent cup
+  opponentCup = createCup(25, 25)
+  opponentCup:fill(GameState.opponentDiceCount)
   
   -- Set the center coordinates
   centerX = love.graphics.getWidth() / 2
@@ -119,9 +121,33 @@ function love.draw()
   --Draw whose turn it is
   love.graphics.printf("Current Turn: " .. GameState.currentPlayer, 0, centerY - 80, love.graphics.getWidth(), "center")
 
+  -- Draw player's dice
   if playerCup.showDice == true then
     for _, die in ipairs(playerCup.dice) do
       die:draw(dieSprites[die.value])
+      -- Add wild card indicator for 1s
+      if die.value == 1 then
+        love.graphics.setColor(1, 0, 0) -- Red color for wild indicator
+        love.graphics.setLineWidth(3) -- Make the circle thicker
+        love.graphics.circle("line", die.transform.x + die.width/2, die.transform.y + die.height/2, die.width/3)
+        love.graphics.setLineWidth(1) -- Reset line width
+        love.graphics.setColor(1, 1, 1) -- Reset color
+      end
+    end
+  end
+
+  -- Draw opponent's dice if in reveal phase
+  if GameState.gamePhase == "revealing" or GameState.isPaused then
+    for _, die in ipairs(opponentCup.dice) do
+      die:draw(dieSprites[die.value])
+      -- Add wild card indicator for 1s
+      if die.value == 1 then
+        love.graphics.setColor(1, 0, 0) -- Red color for wild indicator
+        love.graphics.setLineWidth(3) -- Make the circle thicker
+        love.graphics.circle("line", die.transform.x + die.width/2, die.transform.y + die.height/2, die.width/3)
+        love.graphics.setLineWidth(1) -- Reset line width
+        love.graphics.setColor(1, 1, 1) -- Reset color
+      end
     end
   end
 
@@ -157,8 +183,17 @@ function love.update(dt)
   -- Update message system
   MessageSystem.update(dt)
 
+  -- Update game state
+  GameState.update(dt)
+
+  -- Update opponent's dice movement
+  for i = #opponentCup.dice, 1, -1 do
+    local die = opponentCup.dice[i]
+    die:move(dt)
+  end
+
   -- Handle opponent's turn
-  if GameState.currentPlayer == "opponent" and not GameState.gameOver then
+  if GameState.currentPlayer == "opponent" and not GameState.gameOver and not GameState.isPaused then
     -- Get opponent's known dice (their own dice)
     local knownDice = {}
     for _, die in ipairs(opponentCup.dice) do
@@ -179,6 +214,8 @@ function love.update(dt)
         if OpponentAI.shouldCallDudo(GameState, knownDice) then
           GameState.handleDudo(playerCup.dice, opponentCup.dice)
           MessageSystem.addMessage("Opponent calls Dudo!")
+          -- Show opponent's dice
+          opponentCup:displayDice()
         else
           -- Make a bid
           local bid = OpponentAI.makeBid(GameState, knownDice)
@@ -192,9 +229,10 @@ function love.update(dt)
     end
   end
 
+  -- Update player's dice movement
   for i = #playerCup.dice, 1, -1 do
     local die = playerCup.dice[i]
-    if die.value == guess.value then
+    if die.value == guess.value or die.value == 1 then
       if die.raised == false then 
         die:raise()
       end
@@ -209,16 +247,8 @@ function love.update(dt)
       die.target_transform.y = mouseY - die.height/2
     end
 
-    die:move(dt) -- Apply movement based on target_transform
-
-    --[[REMOVED -- conflicted with dice setting/resetting logic
-
-    if die.transform.x > playerCup.transform.x and die.transform.x < playerCup.transform.x + playerCup.width and
-      die.transform.y > playerCup.transform.y and die.transform.y < playerCup.transform.y + playerCup.height then
-        playerCup:addDie(die)
-        table.remove(dice, i)
-      end
-    ]]
+    -- Apply movement based on target_transform
+    die:move(dt) 
 
     --Check if dice are overlapping when released
     if isReleased then

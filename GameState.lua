@@ -8,12 +8,15 @@ local GameState = {
         count = 0,
         player = nil
     },
-    gamePhase = "bidding", -- "bidding", "challenging", "revealing"
+    gamePhase = "bidding", -- "bidding", "challenging", "revealing", "paused"
     playerDiceCount = 6,
     opponentDiceCount = 6,
     gameOver = false,
     totalDice = 12, -- Total dice in play
-    lastAction = nil -- Track the last action taken
+    lastAction = nil, -- Track the last action taken
+    isPaused = false,
+    pauseTimer = 0,
+    pauseDuration = 3.0 -- 3 seconds pause
 }
 
 -- Initialize a new round
@@ -95,6 +98,8 @@ end
 function GameState.handleDudo(playerDice, opponentDice)
     GameState.gamePhase = "revealing"
     GameState.lastAction = "dudo"
+    GameState.isPaused = true
+    GameState.pauseTimer = 0
     print(GameState.currentPlayer .. " called Dudo!")
     
     -- After Dudo, we need to:
@@ -103,12 +108,12 @@ function GameState.handleDudo(playerDice, opponentDice)
     -- 3. Start a new round
     local actualCount = 0
     for _, die in ipairs(playerDice) do
-        if die.value == GameState.currentBid.value then
+        if die.value == GameState.currentBid.value or die.value == 1 then
             actualCount = actualCount + 1
         end
     end
     for _, die in ipairs(opponentDice) do
-        if die.value == GameState.currentBid.value then
+        if die.value == GameState.currentBid.value or die.value == 1 then
             actualCount = actualCount + 1
         end
     end
@@ -132,12 +137,6 @@ function GameState.handleDudo(playerDice, opponentDice)
             GameState.opponentDiceCount = GameState.opponentDiceCount - 1
             MessageSystem.addMessage("Opponent loses the round!", 3.0)
         end
-    end
-    
-    -- Check if game is over
-    if not GameState.checkGameOver() then
-        -- Start a new round
-        GameState.newRound()
     end
     
     return true
@@ -168,7 +167,26 @@ function GameState.reset()
     GameState.gameOver = false
     GameState.totalDice = 12
     GameState.lastAction = nil
+    GameState.isPaused = false
+    GameState.pauseTimer = 0
+    GameState.pauseDuration = 3.0
     print("Game reset. Player's turn.")
+end
+
+-- Update the game state
+function GameState.update(dt)
+    if GameState.isPaused then
+        GameState.pauseTimer = GameState.pauseTimer + dt
+        if GameState.pauseTimer >= GameState.pauseDuration then
+            GameState.isPaused = false
+            GameState.pauseTimer = 0
+            -- Check if game is over
+            if not GameState.checkGameOver() then
+                -- Start a new round
+                GameState.newRound()
+            end
+        end
+    end
 end
 
 return GameState 

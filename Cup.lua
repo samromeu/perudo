@@ -20,10 +20,14 @@ local function createCup(x, y)
     self:displayDice()
   end
 
-  cup.displayDice = function(self) --IN PROGRESS: Continue from here
+  cup.displayDice = function(self)
     self.showDice = true
     local offset = 200
     for i, die in ipairs(self.dice) do
+      -- Set initial position
+      die.transform.x = self.transform.x
+      die.transform.y = self.transform.y + (self.height / 4)
+      -- Set target position
       die.target_transform.x = self.transform.x + offset
       die.target_transform.y = self.transform.y + (self.height / 4)
       offset = offset + die.width * 1.25
@@ -34,6 +38,9 @@ local function createCup(x, y)
     for i, die in ipairs(self.dice) do
       die.target_transform.x = --[[self.transform.x + (self.width / 4)]] -50
       die.target_transform.y = self.transform.y + (self.height / 4)
+      die.raised = false
+      die.transform.x = die.target_transform.x
+      die.transform.y = die.target_transform.y
     end
     self.showDice = false
   end
